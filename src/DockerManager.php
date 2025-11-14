@@ -17,6 +17,7 @@ class DockerManager
     private array $docker_output = [];
     private $progress_callback = null;
     private string $yaml_parser;
+    private int $last_parsed_length = 0;
 
     public function __construct(string $docker_workdir, string $docker_compose_relative_path, string $yaml_parser = 'ext')
     {
@@ -56,6 +57,10 @@ class DockerManager
      */
     public function run(bool $rebuild = false, bool $save_logs = false): bool
     {
+        // Reset state for this run
+        $this->last_parsed_length = 0;
+        $this->docker_output = [];
+
         // 1) Write temp compose file
         $tmp = rtrim($this->docker_workdir, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR . 'docker-compose-' . uniqid() . '.yml';
@@ -107,6 +112,7 @@ class DockerManager
         // 5) Stream the log while the process runs
         $outputBuffer = '';
         $last_cycle = false;
+        $process_exited = false;
         for ($i = 0; $i < 3000; $i++) { // ~5 minutes
             $streams = [];
             if ($stdout && is_resource($stdout) && !feof($stdout)) {
@@ -139,23 +145,42 @@ class DockerManager
 
             $st = proc_get_status($proc);
             if (!$st['running']) {
-                if ($stdout && is_resource($stdout)) {
-                    $chunk = stream_get_contents($stdout);
-                    if ($chunk !== false && $chunk !== '') {
-                        $outputBuffer .= $chunk;
+                // Process has exited, but there might be buffered output
+                // Continue reading for a few more iterations to get all output
+                if (!$process_exited) {
+                    $process_exited = true;
+                    // Read any immediately available output
+                    if ($stdout && is_resource($stdout)) {
+                        $chunk = stream_get_contents($stdout);
+                        if ($chunk !== false && $chunk !== '') {
+                            $outputBuffer .= $chunk;
+                        }
+                    }
+                    if ($stderr && is_resource($stderr)) {
+                        $chunk = stream_get_contents($stderr);
+                        if ($chunk !== false && $chunk !== '') {
+                            $outputBuffer .= $chunk;
+                        }
+                    }
+                    $this->parseDockerOutput($outputBuffer);
+                    // Continue reading for a few more cycles (up to 1 second)
+                    // to catch any remaining buffered output
+                    usleep(250000);
+                    continue;
+                } else {
+                    // Check if there's more output
+                    $hasMore = false;
+                    if ($stdout && is_resource($stdout) && !feof($stdout)) {
+                        $hasMore = true;
+                    }
+                    if ($stderr && is_resource($stderr) && !feof($stderr)) {
+                        $hasMore = true;
+                    }
+                    if (!$hasMore) {
+                        // No more output, exit loop
+                        break;
                     }
                 }
-                if ($stderr && is_resource($stderr)) {
-                    $chunk = stream_get_contents($stderr);
-                    if ($chunk !== false && $chunk !== '') {
-                        $outputBuffer .= $chunk;
-                    }
-                }
-                $this->parseDockerOutput($outputBuffer);
-                $last_cycle = true;
-            }
-            if ($last_cycle) {
-                break;
             }
         }
 
@@ -246,6 +271,13 @@ class DockerManager
 
     private function parseDockerOutput(string $output): void
     {
+        // Only parse and trigger callback if we have new data
+        $currentLength = strlen($output);
+        if ($currentLength === $this->last_parsed_length) {
+            return;
+        }
+        $this->last_parsed_length = $currentLength;
+
         $lines = explode("\n", $output);
         $builds = [
             'containers' => [],
