@@ -6,13 +6,16 @@ use Orryv\DockerManager\Ports\FindNextPort;
 use Orryv\Cmd;
 use Orryv\DockerManager;
 use Orryv\XString;
+use Orryv\XStringType;
 
 class Helper
 {
     public static function startContainer($name, $workdir, $compose_path, int|FindNextPort $port, $build_containers, $save_logs, $vars = []): int
     {
         Cmd::beginLive(1);
-        $tmp_port = $port->getAvailablePort();
+        $tmp_port = $port instanceof FindNextPort
+            ? $port->getAvailablePort()
+            : $port;
         $dm = new DockerManager($workdir, $compose_path)
             ->setName($name)
             ->injectVariable('HOST_PORT', $tmp_port)
