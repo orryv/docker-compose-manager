@@ -16,5 +16,9 @@
     ],
     "require": {
         "orryv/x-string": "^1.0"
+    },
+    "suggest": {
+        "ext-yaml": "Required for the default YAML parser implementation.",
+        "symfony/yaml": "Provides a pure PHP YAML parser alternative."
     }
 }

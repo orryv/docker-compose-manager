@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use Orryv\Config;
 use Orryv\XString;
 use Orryv\XStringType;
+use RuntimeException;
 
 class Manager
 {
@@ -15,9 +16,15 @@ class Manager
     private array $inject_variables = [];
     private array $docker_output = [];
     private $progress_callback = null;
+    private string $yaml_parser;
 
-    public function __construct(string $docker_workdir, string $docker_compose_relative_path)
+    public function __construct(string $docker_workdir, string $docker_compose_relative_path, string $yaml_parser = 'ext')
     {
+        if (!in_array($yaml_parser, ['ext', 'symfony'], true)) {
+            throw new InvalidArgumentException("Invalid YAML parser '{$yaml_parser}'. Use 'ext' or 'symfony'.");
+        }
+        $this->yaml_parser = $yaml_parser;
+
         if (!is_dir($docker_workdir)) {
             throw new InvalidArgumentException("Docker workdir '{$docker_workdir}' is not a valid directory.");
         }
@@ -33,7 +40,8 @@ class Manager
 
         $this->docker_workdir = realpath($this->docker_workdir) . DIRECTORY_SEPARATOR;
 
-        $this->parsed_docker_compose = yaml_parse_file($this->docker_workdir . $this->docker_compose_relative_path);
+        $compose_path = $this->docker_workdir . $this->docker_compose_relative_path;
+        $this->parsed_docker_compose = $this->parseDockerCompose($compose_path);
     }
 
     public function injectVariable(string $key, string $value): self
@@ -51,7 +59,7 @@ class Manager
         // 1) Write temp compose file
         $tmp = rtrim($this->docker_workdir, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR . 'docker-compose-' . uniqid() . '.yml';
-        yaml_emit_file($tmp, $this->parsed_docker_compose);
+        $this->writeDockerCompose($tmp);
 
         // 2) Detect OS + choose quoting for the -f path
         $isWin = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
@@ -223,6 +231,58 @@ class Manager
         }
 
         $this->docker_output = $builds;
+    }
+
+    private function parseDockerCompose(string $compose_path): array
+    {
+        switch ($this->yaml_parser) {
+            case 'ext':
+                if (!function_exists('yaml_parse_file')) {
+                    throw new RuntimeException('ext-yaml is required when using the "ext" YAML parser option.');
+                }
+                $parsed = yaml_parse_file($compose_path);
+                break;
+            case 'symfony':
+                if (!class_exists(\Symfony\Component\Yaml\Yaml::class)) {
+                    throw new RuntimeException('symfony/yaml must be installed to use the "symfony" YAML parser option.');
+                }
+                $parsed = \Symfony\Component\Yaml\Yaml::parseFile($compose_path);
+                break;
+            default:
+                throw new RuntimeException('Unsupported YAML parser.');
+        }
+
+        if (!is_array($parsed)) {
+            throw new RuntimeException('Docker compose file could not be parsed into an array.');
+        }
+
+        return $parsed;
+    }
+
+    private function writeDockerCompose(string $target_path): void
+    {
+        switch ($this->yaml_parser) {
+            case 'ext':
+                if (!function_exists('yaml_emit_file')) {
+                    throw new RuntimeException('ext-yaml is required when using the "ext" YAML parser option.');
+                }
+                $result = yaml_emit_file($target_path, $this->parsed_docker_compose);
+                if ($result === false) {
+                    throw new RuntimeException('Failed to write temporary docker compose file.');
+                }
+                return;
+            case 'symfony':
+                if (!class_exists(\Symfony\Component\Yaml\Yaml::class)) {
+                    throw new RuntimeException('symfony/yaml must be installed to use the "symfony" YAML parser option.');
+                }
+                $yaml = \Symfony\Component\Yaml\Yaml::dump($this->parsed_docker_compose, 10, 2);
+                if (file_put_contents($target_path, $yaml) === false) {
+                    throw new RuntimeException('Failed to write temporary docker compose file.');
+                }
+                return;
+        }
+
+        throw new RuntimeException('Unsupported YAML parser.');
     }
 
     public function getErrors(): array
