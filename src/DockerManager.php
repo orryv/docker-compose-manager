@@ -705,13 +705,20 @@ class DockerManager
         $baseDir = rtrim($this->docker_compose_dir->toString(), DIRECTORY_SEPARATOR);
 
         foreach ($data['services'] as $serviceName => &$service) {
-            if (!is_array($service) || !array_key_exists('build', $service)) {
+            if (!is_array($service)) {
+                $this->validateServiceVolumes($serviceName, [], $baseDir);
+                continue;
+            }
+
+            if (!array_key_exists('build', $service)) {
+                $this->validateServiceVolumes($serviceName, $service, $baseDir);
                 continue;
             }
 
             if (is_string($service['build'])) {
                 $buildContext = $service['build'];
                 if ($this->containsComposeVariable($buildContext)) {
+                    $this->validateServiceVolumes($serviceName, $service, $baseDir);
                     continue;
                 }
 
@@ -719,10 +726,12 @@ class DockerManager
                 $this->assertBuildContextDirectoryExists($serviceName, $buildContext, $contextPath);
                 $this->assertDefaultDockerfileExists($serviceName, $buildContext, $contextPath);
                 $service['build'] = $contextPath;
+                $this->validateServiceVolumes($serviceName, $service, $baseDir);
                 continue;
             }
 
             if (!is_array($service['build'])) {
+                $this->validateServiceVolumes($serviceName, $service, $baseDir);
                 continue;
             }
 
@@ -755,6 +764,7 @@ class DockerManager
             }
 
             $service['build'] = $build;
+            $this->validateServiceVolumes($serviceName, $service, $baseDir);
         }
 
         unset($service);
@@ -849,6 +859,126 @@ class DockerManager
             $declaredContext,
             $resolvedContext,
             $expected
+        ));
+    }
+
+    private function validateServiceVolumes(string $serviceName, array $service, string $baseDir): void
+    {
+        $volumes = $service['volumes'] ?? null;
+        if (!is_array($volumes)) {
+            return;
+        }
+
+        foreach ($volumes as $volume) {
+            if (is_string($volume)) {
+                $this->validateVolumeString($serviceName, $volume, $baseDir);
+                continue;
+            }
+
+            if (is_array($volume)) {
+                $this->validateVolumeArray($serviceName, $volume, $baseDir);
+            }
+        }
+    }
+
+    private function validateVolumeString(string $service, string $volume, string $baseDir): void
+    {
+        $hostPath = $this->extractBindVolumeHostPath($volume);
+        if ($hostPath === null) {
+            return;
+        }
+
+        $this->assertVolumeHostPathExists($service, $hostPath, $baseDir, $volume);
+    }
+
+    private function validateVolumeArray(string $service, array $volume, string $baseDir): void
+    {
+        $source = $volume['source'] ?? $volume['src'] ?? null;
+        if (!is_string($source) || trim($source) === '') {
+            return;
+        }
+
+        $type = $volume['type'] ?? null;
+        if ($type !== null && strtolower((string) $type) !== 'bind') {
+            return;
+        }
+
+        if (!$this->looksLikeFilesystemPath($source)) {
+            return;
+        }
+
+        $this->assertVolumeHostPathExists($service, $source, $baseDir, $source);
+    }
+
+    private function extractBindVolumeHostPath(string $definition): ?string
+    {
+        $trimmed = trim($definition);
+        if ($trimmed === '' || $this->containsComposeVariable($trimmed)) {
+            return null;
+        }
+
+        $length = strlen($trimmed);
+        $position = 0;
+
+        if ($length >= 2 && ctype_alpha($trimmed[0]) && $trimmed[1] === ':') {
+            $position = 2;
+        }
+
+        while ($position < $length && $trimmed[$position] !== ':') {
+            $position++;
+        }
+
+        if ($position >= $length) {
+            return null;
+        }
+
+        $host = substr($trimmed, 0, $position);
+        $container = substr($trimmed, $position + 1);
+        if ($host === '' || trim($container) === '') {
+            return null;
+        }
+
+        if (!$this->looksLikeFilesystemPath($host)) {
+            return null;
+        }
+
+        return $host;
+    }
+
+    private function looksLikeFilesystemPath(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        if ($this->containsComposeVariable($value)) {
+            return false;
+        }
+
+        if (strpbrk($value, '\\/') !== false) {
+            return true;
+        }
+
+        if ($value[0] === '.' || $value[0] === '~') {
+            return true;
+        }
+
+        return strlen($value) > 1 && ctype_alpha($value[0]) && $value[1] === ':';
+    }
+
+    private function assertVolumeHostPathExists(string $service, string $declared, string $baseDir, string $definition): void
+    {
+        $resolved = $this->resolveComposePath($declared, $baseDir);
+        if (file_exists($resolved)) {
+            return;
+        }
+
+        throw new RuntimeException(sprintf(
+            'Service "%s" volume host path not found. Declared "%s" resolved to "%s".',
+            $service,
+            $definition,
+            $resolved
         ));
     }
 

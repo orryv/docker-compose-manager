@@ -150,6 +150,39 @@ class DockerManagerTest extends TestCase
         }
     }
 
+    public function testStartFailsWhenBindMountSourceMissing(): void
+    {
+        $runner = new FakeProcessRunner();
+        $missingPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'docker-manager-missing-volume-' . uniqid('', true);
+        if (file_exists($missingPath)) {
+            $this->fail('Unexpected pre-existing path for bind mount test.');
+        }
+
+        $relativeMissing = './' . basename($missingPath);
+
+        $manager = (new DockerManager('symfony'))
+            ->fromDockerCompose($this->composePath)
+            ->updateService('storyteller', [
+                'volumes' => [
+                    $relativeMissing . ':/opt/demo/missing',
+                ],
+                'healthcheck' => null,
+            ])
+            ->setProcessRunner($runner);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('volume host path not found');
+
+        try {
+            $manager->start();
+        } catch (RuntimeException $exception) {
+            $this->assertSame([], $runner->commands);
+            $expectedResolved = $this->resolveFixturePath($relativeMissing);
+            $this->assertStringContainsString($expectedResolved, $exception->getMessage());
+            throw $exception;
+        }
+    }
+
     public function testStopFromContainerName(): void
     {
         $runner = new FakeProcessRunner();
@@ -205,5 +238,34 @@ class DockerManagerTest extends TestCase
         $this->assertStringContainsString('Temporary compose file:', $errorMessage);
         $this->assertStringContainsString('Captured log file:', $errorMessage);
         $this->assertStringContainsString('Last output: The system cannot find the path specified.', $errorMessage);
+    }
+
+    private function resolveFixturePath(string $relative): string
+    {
+        $base = dirname($this->composePath);
+        $normalized = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
+
+        if ($normalized === '' || $normalized === '.' || $normalized === DIRECTORY_SEPARATOR) {
+            return rtrim($base, DIRECTORY_SEPARATOR);
+        }
+
+        if ($this->isAbsolutePath($normalized)) {
+            return $normalized;
+        }
+
+        return rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if ($path[0] === '/' || $path[0] === '\\') {
+            return true;
+        }
+
+        return strlen($path) > 1 && ctype_alpha($path[0]) && $path[1] === ':';
     }
 }
