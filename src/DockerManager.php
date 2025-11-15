@@ -664,6 +664,7 @@ class DockerManager
     private function writeDockerCompose(string $target_path): void
     {
         $data = $this->composeDefinition?->toArray() ?? [];
+        $data = $this->normalizeComposeDefinitionForWrite($data);
         switch ($this->yaml_parser_raw) {
             case 'ext':
                 if (!function_exists('yaml_emit_file')) {
@@ -689,6 +690,145 @@ class DockerManager
         }
 
         throw new RuntimeException('Unsupported YAML parser.');
+    }
+
+    private function normalizeComposeDefinitionForWrite(array $data): array
+    {
+        if ($this->docker_compose_dir === null) {
+            return $data;
+        }
+
+        if (!isset($data['services']) || !is_array($data['services'])) {
+            return $data;
+        }
+
+        $baseDir = rtrim($this->docker_compose_dir->toString(), DIRECTORY_SEPARATOR);
+
+        foreach ($data['services'] as $serviceName => &$service) {
+            if (!is_array($service) || !array_key_exists('build', $service)) {
+                continue;
+            }
+
+            if (is_string($service['build'])) {
+                $buildContext = $service['build'];
+                if ($this->containsComposeVariable($buildContext)) {
+                    continue;
+                }
+
+                $contextPath = $this->resolveComposePath($buildContext, $baseDir);
+                $this->assertBuildContextDirectoryExists($serviceName, $buildContext, $contextPath);
+                $service['build'] = $contextPath;
+                continue;
+            }
+
+            if (!is_array($service['build'])) {
+                continue;
+            }
+
+            $build = $service['build'];
+            $contextValue = $build['context'] ?? '.';
+            if (!is_string($contextValue) || $contextValue === '') {
+                $contextValue = '.';
+            }
+
+            $contextPath = null;
+            if (!$this->containsComposeVariable($contextValue)) {
+                $contextPath = $this->resolveComposePath($contextValue, $baseDir);
+                $this->assertBuildContextDirectoryExists($serviceName, $contextValue, $contextPath);
+                $build['context'] = $contextPath;
+            }
+
+            if (
+                $contextPath !== null
+                && isset($build['dockerfile'])
+                && is_string($build['dockerfile'])
+                && $build['dockerfile'] !== ''
+                && !$this->containsComposeVariable($build['dockerfile'])
+            ) {
+                $dockerfilePath = $this->resolveComposePath($build['dockerfile'], $contextPath);
+                $this->assertDockerfileExists($serviceName, $build['dockerfile'], $dockerfilePath, $contextPath);
+            }
+
+            $service['build'] = $build;
+        }
+
+        unset($service);
+
+        return $data;
+    }
+
+    private function containsComposeVariable(string $value): bool
+    {
+        return strpos($value, '${') !== false;
+    }
+
+    private function resolveComposePath(string $value, string $baseDir): string
+    {
+        $normalized = trim($value);
+        $normalized = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $normalized);
+
+        if ($normalized === '' || $normalized === '.') {
+            return $this->normalizeRealPath($baseDir) ?? $baseDir;
+        }
+
+        if ($this->isAbsolutePath($normalized)) {
+            return $this->normalizeRealPath($normalized) ?? $normalized;
+        }
+
+        $candidate = rtrim($baseDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
+        return $this->normalizeRealPath($candidate) ?? $candidate;
+    }
+
+    private function normalizeRealPath(string $path): ?string
+    {
+        $real = realpath($path);
+        if ($real === false) {
+            return null;
+        }
+
+        return str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $real);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if ($path[0] === '/' || $path[0] === '\\') {
+            return true;
+        }
+
+        return strlen($path) > 1 && ctype_alpha($path[0]) && $path[1] === ':';
+    }
+
+    private function assertBuildContextDirectoryExists(string $service, string $declared, string $resolved): void
+    {
+        if (is_dir($resolved)) {
+            return;
+        }
+
+        throw new RuntimeException(sprintf(
+            'Service "%s" build context directory not found. Declared "%s" resolved to "%s".',
+            $service,
+            $declared,
+            $resolved
+        ));
+    }
+
+    private function assertDockerfileExists(string $service, string $declared, string $resolved, string $contextPath): void
+    {
+        if (is_file($resolved)) {
+            return;
+        }
+
+        throw new RuntimeException(sprintf(
+            'Service "%s" dockerfile not found. Declared "%s" relative to "%s" resolved to "%s".',
+            $service,
+            $declared,
+            $contextPath,
+            $resolved
+        ));
     }
 
     private function getYamlParser(string $yaml_parser): string
@@ -779,23 +919,35 @@ class DockerManager
 
     private function buildComposeUpCommand(string $composePath, bool $rebuild): string
     {
-        $composeBin = $this->detectComposeBin();
-        $composeFileArg = $this->quotePathForCompose($composePath);
+        $baseCommand = $this->buildComposeCommandPrefix($composePath);
 
         $command = $rebuild
-            ? $composeBin . ' -f ' . $composeFileArg . ' build --no-cache && ' . $composeBin . ' -f ' . $composeFileArg . ' up -d --force-recreate --renew-anon-volumes'
-            : $composeBin . ' -f ' . $composeFileArg . ' up -d';
+            ? $baseCommand . ' build --no-cache && ' . $baseCommand . ' up -d --force-recreate --renew-anon-volumes'
+            : $baseCommand . ' up -d';
 
         return $this->wrapCommandForShell($command);
     }
 
     private function buildComposeDownCommand(string $composePath): string
     {
-        $composeBin = $this->detectComposeBin();
-        $composeFileArg = $this->quotePathForCompose($composePath);
-        $command = $composeBin . ' -f ' . $composeFileArg . ' down';
+        $command = $this->buildComposeCommandPrefix($composePath) . ' down';
 
         return $this->wrapCommandForShell($command);
+    }
+
+    private function buildComposeCommandPrefix(string $composePath): string
+    {
+        $composeBin = $this->detectComposeBin();
+        $command = $composeBin;
+
+        if ($this->docker_compose_dir !== null) {
+            $projectDirectory = rtrim($this->docker_compose_dir->toString(), DIRECTORY_SEPARATOR);
+            $command .= ' --project-directory ' . $this->quotePathForCompose($projectDirectory);
+        }
+
+        $command .= ' -f ' . $this->quotePathForCompose($composePath);
+
+        return $command;
     }
 
     private function buildDirectDockerCommand(string $command): string

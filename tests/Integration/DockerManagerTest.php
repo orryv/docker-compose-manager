@@ -6,6 +6,7 @@ namespace Tests\Integration;
 
 use Orryv\DockerManager;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Tests\Support\FakeProcessRunner;
 
 class DockerManagerTest extends TestCase
@@ -44,6 +45,9 @@ class DockerManagerTest extends TestCase
         $this->assertSame(0, $manager->getLastExitCode());
         $this->assertNotEmpty($progressData);
         $this->assertStringContainsString('up -d', $runner->commands[0]);
+        $expectedProjectDir = rtrim(dirname($this->composePath), DIRECTORY_SEPARATOR);
+        $this->assertStringContainsString('--project-directory', $runner->commands[0]);
+        $this->assertStringContainsString($expectedProjectDir, $runner->commands[0]);
         $this->assertSame(dirname($this->composePath), rtrim($runner->workingDirectories[0], DIRECTORY_SEPARATOR));
     }
 
@@ -63,6 +67,56 @@ class DockerManagerTest extends TestCase
         $manager->setProcessRunner($runnerStop);
         $this->assertTrue($manager->stop());
         $this->assertStringContainsString('down', $runnerStop->commands[0]);
+    }
+
+    public function testStartFailsWhenBuildContextMissing(): void
+    {
+        $runner = new FakeProcessRunner();
+
+        $manager = (new DockerManager('symfony'))
+            ->fromDockerCompose($this->composePath)
+            ->updateService('storyteller', [
+                'build' => [
+                    'context' => './does-not-exist',
+                    'dockerfile' => 'Dockerfile',
+                ],
+                'healthcheck' => null,
+            ])
+            ->setProcessRunner($runner);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('build context directory not found');
+
+        $manager->start();
+    }
+
+    public function testStartFailsWhenDockerfileMissing(): void
+    {
+        $runner = new FakeProcessRunner();
+        $temporaryContext = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'docker-manager-missing-dockerfile-' . uniqid('', true);
+        if (!mkdir($temporaryContext) && !is_dir($temporaryContext)) {
+            $this->fail('Unable to create temporary context directory for test.');
+        }
+
+        try {
+            $manager = (new DockerManager('symfony'))
+                ->fromDockerCompose($this->composePath)
+                ->updateService('storyteller', [
+                    'build' => [
+                        'context' => $temporaryContext,
+                        'dockerfile' => 'MissingDockerfile',
+                    ],
+                    'healthcheck' => null,
+                ])
+                ->setProcessRunner($runner);
+
+            $this->expectException(RuntimeException::class);
+            $this->expectExceptionMessage('dockerfile not found');
+
+            $manager->start();
+        } finally {
+            @rmdir($temporaryContext);
+        }
     }
 
     public function testStopFromContainerName(): void
