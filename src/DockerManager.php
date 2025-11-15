@@ -175,6 +175,9 @@ class DockerManager
             throw new RuntimeException('Cannot start containers without a docker compose definition.');
         }
 
+        $this->docker_output = [];
+        $this->last_parsed_chunk = null;
+
         $composePath = $this->writeTemporaryComposeFile();
 
         try {
@@ -193,6 +196,10 @@ class DockerManager
 
             $this->handleDebugArtifacts($composePath, $result->getLogFilePath());
             $this->cleanupLogFile($result->getLogFilePath(), $save_logs);
+
+            if ($this->last_exit_code !== 0 && empty($this->docker_output['errors'])) {
+                $this->docker_output['errors'][] = $this->formatFallbackError($command);
+            }
 
             if (!empty($this->docker_output['errors'])) {
                 return false;
@@ -521,6 +528,56 @@ class DockerManager
         }
 
         return (string) file_get_contents($logPath);
+    }
+
+    private function formatFallbackError(string $command): string
+    {
+        $exitCode = $this->last_exit_code ?? -1;
+        $message = sprintf('Docker compose command "%s" exited with code %d.', $command, $exitCode);
+
+        $summary = $this->summarizeOutputForError($this->last_output);
+        if ($summary !== null) {
+            $message .= ' Last output: ' . $summary;
+        }
+
+        return $message;
+    }
+
+    private function summarizeOutputForError(?string $output): ?string
+    {
+        if ($output === null) {
+            return null;
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $output) ?: [];
+        $lines = array_values(array_filter(array_map(static function ($line) {
+            return trim((string) $line);
+        }, $lines), static function ($line) {
+            return $line !== '';
+        }));
+
+        if ($lines === []) {
+            return null;
+        }
+
+        $firstLine = $lines[0];
+        $lastLine = $lines[count($lines) - 1];
+
+        if (count($lines) === 1 || $firstLine === $lastLine) {
+            return $this->truncateErrorSummary($firstLine);
+        }
+
+        $summary = $firstLine . ' ... ' . $lastLine;
+        return $this->truncateErrorSummary($summary);
+    }
+
+    private function truncateErrorSummary(string $summary): string
+    {
+        if (strlen($summary) <= 500) {
+            return $summary;
+        }
+
+        return substr($summary, 0, 497) . '...';
     }
 
     private function handleDebugArtifacts(string $composePath, ?string $logPath): void
