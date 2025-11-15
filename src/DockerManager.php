@@ -12,7 +12,7 @@ use Orryv\Path;
 
 /*
 TODO:
-implement:
+- implement:
 public function getDockerCompose(): ?array
 public function getDockerComposePath(): ?string
 public function getDockerComposeDir(): ?string
@@ -20,6 +20,20 @@ public function getEnvVariables(): array
 public function getName(): ?string
 public function getLastOutput(): ?string
 public function getLastExitCode(): ?int
+
+- Keep track of all the temporary files we create (docker-compose overrides, dockerfiles, logs, etc) and provide a method to clean them up (best in __destruct)
+
+- Also implement "helper" methods like (but not limited to, I'm sure you can think of way more we can implement):
+setName($name) // the name above the services (to group them)
+setContainerName($target_service, $name)
+setServiceName($target_service, $name)
+setPortMapping($target_service, $container_port, $host_port, $protocol = 'tcp') // can be called multiple times for multiple ports
+setCpus($target_service, $cpus)
+setMemoryLimit($target_service, $memory_limit)
+setEnvironmentVariable($target_service, $key, $value) 
+
+Note: in these helper methods we need to set which service we are targeting in the docker-compose file. 
+
 
 */
 
@@ -32,10 +46,14 @@ class DockerManager
     private string $yaml_parser_raw;
     private ?array $docker_compose = null;
     private array $env_variables = [];
-    private ?XString $debug_path = null; // outputs tmp docker-compose and docker console output dump to this path.
+    private bool $debug = false; // outputs tmp docker-compose and docker console output dump to the path where docker-compose.yml is located.
     private ?XString $dockerfile_path = null; // used when fromDockerfile is called.
 
     private bool $from_is_already_called = false;
+
+    private bool $from_docker_compose_is_called = false;
+    private bool $from_dockerfile_is_called = false;
+    private bool $from_docker_container_name_is_called = false;
 
     public function __construct(string $yaml_parser = 'ext')
     {
@@ -48,6 +66,7 @@ class DockerManager
             throw new RuntimeException("a 'from' method has already been called.");
         }
 
+        $this->from_docker_compose_is_called = true;
         $this->from_is_already_called = true;
 
         $this->docker_compose_path = $this->parseDockerComposePath($docker_compose_full_path);
@@ -61,6 +80,7 @@ class DockerManager
             throw new RuntimeException("a 'from' method has already been called.");
         }
 
+        $this->from_docker_container_name_is_called = true;
         $this->from_is_already_called = true;
 
         $this->name = XString::trim($name);
@@ -73,6 +93,7 @@ class DockerManager
             throw new RuntimeException("a 'from' method has already been called.");
         }
 
+        $this->from_dockerfile_is_called = true;
         $this->from_is_already_called = true;
 
         $xpath = XString::trim($dockerfile_path);
@@ -94,12 +115,18 @@ class DockerManager
         return $this;
     }
 
+    /**
+     * Sets a single environment variable. (so variables can be used in docker-compose.yml)
+     */
     public function setEnvVariable(string $key, string $value): DockerManager
     {
         $this->env_variables[$key] = $value;
         return $this;
     }
 
+    /**
+     * Sets multiple environment variables at once. (so variables can be used in docker-compose.yml)
+     */
     public function setEnvVariables(array $vars): DockerManager
     {
         foreach ($vars as $key => $value) {
@@ -112,6 +139,10 @@ class DockerManager
         return $this;
     }
 
+    /**
+     * Merges values into the docker-compose configuration array.
+     * Ex.: ['services' => ['web' => ['ports' => ['8080:80']]] ] will set port mapping for 'web' service.
+     */
     public function setDockerComposeValue(array $values): DockerManager
     {
         if ($this->docker_compose === null) {
@@ -122,33 +153,96 @@ class DockerManager
         return $this;
     }
 
-    public function setDebugPath(?string $path): DockerManager
+    public function debug(bool $enabled = true): DockerManager
     {
-        $this->debug_path = $this->parseDebugPath($path);
+        $this->debug = $enabled;
         return $this;
     }
 
-    public function start($rebuild_containers = false): bool
+    /**
+     * Returns wherhet the docker container exists.
+     */
+    public function exists(): bool
     {
-        // Implementation of starting Docker containers goes here.
+        // TODO: Implement
+        return true;
+    }
+
+    /**
+     * Returns whether the docker container is running.
+     */
+    public function isRunning(): bool
+    {
+        // TODO: Implement
+        return true;
+    }
+
+    /**
+     * Removes the docker container.
+     * 
+     * @param bool        $removeVolumes  Whether to remove associated volumes.
+     * @param string|null $removeImages   'local'|'all' for docker compose, or null
+     */
+    public function remove(bool $removeVolumes = false, ?string $removeImages = null): bool
+    {
+        // TODO: Implement
+        return true;
+    }
+
+    /**
+     * Resets the docker container by stopping and removing it, then rebuilding and starting it again.
+     * 
+     * @param bool        $removeVolumes     Whether to remove associated volumes.
+     * @param string|null $removeImages      'local'|'all' for docker compose, or null
+     * @param bool        $rebuildContainers Whether to rebuild the containers.
+     * @param bool        $saveLogs          Whether to save logs before resetting. (in the same folder as docker-compose.yml)
+     */
+    public function reset(
+        bool $removeVolumes = false,
+        ?string $removeImages = null,
+        bool $rebuildContainers = false,
+        bool $saveLogs = false
+    ): bool {
+        if($this->from_docker_container_name_is_called){
+            throw new RuntimeException("Reset is not supported when using fromDockerContainerName().");
+        }
+
+        if($this->from_dockerfile_is_called){
+            throw new RuntimeException("Reset is not supported when using fromDockerfile().");
+        }
+
+        // TODO: Implement
+        return true;
+    }
+
+    public function start(): bool
+    {
+        if($this->from_docker_container_name_is_called){
+            throw new RuntimeException("Start is not supported when using fromDockerContainerName().");
+        }
+        if($this->from_dockerfile_is_called){
+            throw new RuntimeException("Start is not supported when using fromDockerfile().");
+        }
+
+        // TODO: Implement
         return true;
     }
 
     public function stop(): bool
     {
-        // Implementation of stopping Docker containers goes here.
+        // TODO: Implement
         return true;
     }
 
     public function getErrors(): array
     {
-        // Implementation of error retrieval goes here.
+        // TODO: Implement
         return [];
     }
 
     public function hasPortInUseError(): bool
     {
-        // Implementation to check for port in use errors goes here.
+        // TODO: Implement
         return false;
     }
 
@@ -221,23 +315,6 @@ class DockerManager
         }
 
         $this->docker_compose_dir = $xpath->before(DIRECTORY_SEPARATOR, true)->append(DIRECTORY_SEPARATOR);
-
-        return $xpath;
-    }
-
-    public function parseDebugPath(?string $path): ?XString
-    {
-        if($path === null){
-            return null;
-        }
-
-        $xpath = XString::trim($path);
-
-        if($xpath->isEmpty()){
-            return null;
-        }
-
-        $xpath = $xpath->replace(['\\', '/'], DIRECTORY_SEPARATOR);
 
         return $xpath;
     }
