@@ -31,6 +31,8 @@ if ($fixtureDir === false) {
     exit(1);
 }
 
+echo "Starting demo container using DockerManager helper..." . PHP_EOL;
+
 $portFinder = new FindNextPort([8080, 8081], 9000, 9200);
 
 try {
