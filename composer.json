@@ -1,5 +1,6 @@
 {
-    "name": "orryv/docker-manager",
+    "name": "orryv/docker-compose-manager",
+    "description": "A PHP library to manage Docker Compose configurations and containers programmatically: create, modify, and control Docker Compose setups using PHP, including starting, stopping, and inspecting containers.",
     "type": "library",
     "autoload": {
         "psr-4": {
