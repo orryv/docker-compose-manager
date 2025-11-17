@@ -8,6 +8,10 @@ use Orryv\XString;
 use Orryv\XStringType;
 use RuntimeException;
 
+/**
+ * Legacy helper that directly shells out to docker compose v1/v2, writes logs
+ * to disk and polls container health. Preserved for reference/backward compatibility.
+ */
 class DockerManagerOld
 {
     private ?string $docker_workdir = null;
@@ -18,6 +22,9 @@ class DockerManagerOld
     private $progress_callback = null;
     private string $yaml_parser;
 
+    /**
+     * @param string $yaml_parser Either 'ext' or 'symfony'.
+     */
     public function __construct(string $docker_workdir, string $docker_compose_relative_path, string $yaml_parser = 'ext')
     {
         if (!in_array($yaml_parser, ['ext', 'symfony'], true)) {
@@ -44,6 +51,9 @@ class DockerManagerOld
         $this->parsed_docker_compose = $this->parseDockerCompose($compose_path);
     }
 
+    /**
+     * Add an environment variable that will be passed to docker compose.
+     */
     public function injectVariable(string $key, string $value): self
     {
         $this->inject_variables[$key] = $value;
@@ -52,7 +62,7 @@ class DockerManagerOld
     }
 
     /**
-     * Currently only works when docker compose is in the workdir root.
+     * Execute docker compose up (optionally rebuilding) and wait for health checks.
      */
     public function run(bool $rebuild = false, bool $save_logs = false): bool
     {
@@ -140,6 +150,9 @@ class DockerManagerOld
         return true;
     }
 
+    /**
+     * Quick health probe by running `docker info`/`docker ps`.
+     */
     public static function isDockerRunning(): bool
     {
         $isWin = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
@@ -160,6 +173,9 @@ class DockerManagerOld
         return $exitCode === 0;
     }
 
+    /**
+     * @return array<string,string>
+     */
     private function buildProcessEnv(): array
     {
         $env = getenv();
@@ -177,6 +193,9 @@ class DockerManagerOld
         return $env;
     }
 
+    /**
+     * @return string
+     */
     private function detectComposeBin(): string
     {
         foreach (['docker compose', 'docker-compose'] as $bin) {
@@ -187,6 +206,9 @@ class DockerManagerOld
         return 'docker-compose';
     }
 
+    /**
+     * Parse docker compose output log and update internal progress/error buffers.
+     */
     private function parseDockerOutput(string $output): void
     {
         $lines = explode("\n", $output);
@@ -233,6 +255,9 @@ class DockerManagerOld
         $this->docker_output = $builds;
     }
 
+    /**
+     * @return array<string,mixed>
+     */
     private function parseDockerCompose(string $compose_path): array
     {
         switch ($this->yaml_parser) {
@@ -262,6 +287,9 @@ class DockerManagerOld
         return $parsed;
     }
 
+    /**
+     * Write the current compose array to a temporary file using the configured parser.
+     */
     private function writeDockerCompose(string $target_path): void
     {
         switch ($this->yaml_parser) {
@@ -291,17 +319,26 @@ class DockerManagerOld
         throw new RuntimeException('Unsupported YAML parser.');
     }
 
+    /**
+     * @return array<string,mixed>
+     */
     public function getErrors(): array
     {
         return $this->docker_output['errors'] ?? [];
     }
 
+    /**
+     * Register a callback invoked while log output is parsed.
+     */
     public function onProgress(?callable $callback = null): self
     {
         $this->progress_callback = $callback;
         return $this;
     }
 
+    /**
+     * @return bool
+     */
     public function hasPortInUseError(): bool
     {
         foreach ($this->docker_output['errors'] ?? [] as $error) {
@@ -315,6 +352,9 @@ class DockerManagerOld
         return false;
     }
 
+    /**
+     * Override the compose project name before running.
+     */
     public function setName(string $name): self
     {
         if (empty($name)) {
@@ -338,6 +378,9 @@ class DockerManagerOld
 
     /**
      * Waits until all services that define a healthcheck are healthy.
+     */
+    /**
+     * Poll docker inspect until all services report healthy or timeout hits.
      */
     private function waitForHealthOfServices(int $timeoutSeconds): void
     {

@@ -8,7 +8,7 @@ Requirements:
 
 - PHP 8.2 or higher // TODO: check if we can support 8.1, or only 8.4
 - Composer
-- [`ext-yaml`](https://www.php.net/manual/en/book.yaml.php) AND/OR [`symfony/yaml`](https://github.com/symfony/yaml)
+- [`ext-yaml`](https://www.php.net/manual/en/book.yaml.php) **or** [`symfony/yaml`](https://github.com/symfony/yaml) (only one is required – the library auto-detects ext-yaml first and falls back to Symfony's parser when installed)
 - Docker & Docker Compose CLI installed (e.g. included in Docker Desktop)
 - [`psr/log`](https://github.com/php-fig/log) (for logging, optional)
 

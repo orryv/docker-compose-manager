@@ -44,6 +44,9 @@ Which helpful methods do you think about? implement them?
 
 */
 
+/**
+ * Placeholder for the next-generation Docker manager prototype.
+ */
 class DockerManager
 {
     private ?XString $docker_compose_path = null;
@@ -62,11 +65,17 @@ class DockerManager
     private bool $from_dockerfile_is_called = false;
     private bool $from_docker_container_name_is_called = false;
 
+    /**
+     * @param string $yaml_parser Preferred YAML backend (ext or symfony).
+     */
     public function __construct(string $yaml_parser = 'ext')
     {
         $this->yaml_parser_raw = $this->getYamlParser($yaml_parser);
     }
 
+    /**
+     * Load a docker-compose.yml file from disk.
+     */
     public function fromDockerCompose(string $docker_compose_full_path): DockerManager
     {
         if ($this->from_is_already_called) {
@@ -81,6 +90,9 @@ class DockerManager
         return $this;
     }
 
+    /**
+     * Target an already-running container by name.
+     */
     public function fromDockerContainerName(string $name): DockerManager
     {
         if ($this->from_is_already_called) {
@@ -94,6 +106,9 @@ class DockerManager
         return $this;
     }
 
+    /**
+     * Use a Dockerfile instead of a compose file.
+     */
     public function fromDockerfile(string $dockerfile_path): DockerManager
     {
         if ($this->from_is_already_called) {
@@ -133,6 +148,8 @@ class DockerManager
 
     /**
      * Sets multiple environment variables at once. (so variables can be used in docker-compose.yml)
+     *
+     * @param array<string,string> $vars
      */
     public function setEnvVariables(array $vars): DockerManager
     {
@@ -160,6 +177,9 @@ class DockerManager
         return $this;
     }
 
+    /**
+     * Toggle debug mode which copies generated files next to the compose file.
+     */
     public function debug(bool $enabled = true): DockerManager
     {
         $this->debug = $enabled;
@@ -167,7 +187,7 @@ class DockerManager
     }
 
     /**
-     * Returns wherhet the docker container exists.
+     * Returns whether the target docker entity exists.
      */
     public function exists(): bool
     {
@@ -186,7 +206,7 @@ class DockerManager
 
     /**
      * Removes the docker container.
-     * 
+     *
      * @param bool        $removeVolumes  Whether to remove associated volumes.
      * @param string|null $removeImages   'local'|'all' for docker compose, or null
      */
@@ -203,6 +223,9 @@ class DockerManager
      * @param string|null $removeImages      'local'|'all' for docker compose, or null
      * @param bool        $rebuildContainers Whether to rebuild the containers.
      * @param bool        $saveLogs          Whether to save logs before resetting. (in the same folder as docker-compose.yml)
+     */
+    /**
+     * Resets the docker container by stopping and removing it, then rebuilding and starting it again.
      */
     public function reset(
         bool $removeVolumes = false,
@@ -222,6 +245,9 @@ class DockerManager
         return true;
     }
 
+    /**
+     * Placeholder for the eventual start implementation.
+     */
     public function start(): bool
     {
         if($this->from_docker_container_name_is_called){
@@ -235,18 +261,27 @@ class DockerManager
         return true;
     }
 
+    /**
+     * Placeholder for the eventual stop implementation.
+     */
     public function stop(): bool
     {
         // TODO: Implement
         return true;
     }
 
+    /**
+     * @return array<int,string>
+     */
     public function getErrors(): array
     {
         // TODO: Implement
         return [];
     }
 
+    /**
+     * @return bool
+     */
     public function hasPortInUseError(): bool
     {
         // TODO: Implement
@@ -257,6 +292,9 @@ class DockerManager
     ## Internal ##
     ##############
 
+    /**
+     * @return array<string,mixed>
+     */
     private function parseDockerCompose(string $compose_path): array
     {
         switch ($this->yaml_parser_raw) {
@@ -286,6 +324,9 @@ class DockerManager
         return $parsed;
     }
 
+    /**
+     * Normalize the YAML parser option.
+     */
     private function getYamlParser(string $yaml_parser): string
     {
         $parser = XString::trim($yaml_parser)->toLowerCase();
@@ -307,6 +348,9 @@ class DockerManager
         throw new InvalidArgumentException("Unsupported YAML parser specified: {$parser}, supported: 'ext', 'symfony'.");
     }
 
+    /**
+     * Normalize and validate the compose file path.
+     */
     private function parseDockerComposePath(string $path): XString
     {
         $xpath = XString::trim($path);
