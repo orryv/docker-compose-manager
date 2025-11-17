@@ -4,12 +4,19 @@ namespace Orryv\DockerManager\Ports;
 
 use Orryv\DockerManager\Ports\PortFinder;
 
+/**
+ * Helper that checks a preferred list of ports and falls back to a range while
+ * skipping entries that recently failed to bind.
+ */
 class FindNextPort
 {
     private array $preferred_ports = [];
     private int $fallback_start_port = 8000;
     private int $fallback_end_port = 9000;
 
+    /**
+     * @param array<int,int> $preferred_ports
+     */
     public function __construct(array $preferred_ports = [], int $fallback_start_port = 8000, int $fallback_end_port = 9000)
     {
         $this->preferred_ports = $preferred_ports;
@@ -17,6 +24,11 @@ class FindNextPort
         $this->fallback_end_port = $fallback_end_port;
     }
 
+    /**
+     * Attempt to find a free port, optionally skipping ones that just failed.
+     *
+     * @return int|null
+     */
     public function getAvailablePort(?int $last_failed = null): ?int
     {
         if ($last_failed !== null) {
