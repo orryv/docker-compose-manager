@@ -46,7 +46,9 @@ class DockerComposeHandler
     public function saveTmpDockerComposeFile(string $fileDir): void
     {
         if ($this->yaml_parser === null) {
-            throw new YamlParserException('Cannot save docker-compose file without a YAML parser.');
+            throw new YamlParserException(
+                'No YAML parser configured. Construct with one, or use fromYamlArray() to build from an array directly.'
+            );
         }
 
         $yamlContent = $this->yaml_parser->build($this->dockerCompose);

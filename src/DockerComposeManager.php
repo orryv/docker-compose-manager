@@ -4,6 +4,7 @@ namespace Orryv;
 
 use Orryv\DockerComposeManager\YamlParsers\YamlParserInterface;
 use Orryv\DockerComposeManager\Exceptions\DockerComposeManagerException;
+use Orryv\DockerComposeManager\Exceptions\YamlParserException;
 use Orryv\DockerComposeManager\FileSystem\Reader;
 use Orryv\DockerComposeManager\DockerCompose\DockerComposeHandler;
 use Orryv\DockerComposeManager\Validation\DockerComposeValidator;
@@ -131,7 +132,7 @@ class DockerComposeManager
     private function getYamlParser(): YamlParserInterface
     {
         if ($this->yaml_parser === null) {
-            throw new DockerComposeManagerException(
+            throw new YamlParserException(
                 'No YAML parser configured. Construct with one, or use fromYamlArray() to build from an array directly.'
             );
         }
