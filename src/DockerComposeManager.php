@@ -116,6 +116,7 @@ class DockerComposeManager
 
     /**
      * Starts containers defined in the Docker Compose configurations. Returns true if all containers started successfully.
+     * Does NOT throw exceptions on failure, instead returns false. use getErrors() to retrieve error details.
      */
     public function start(string|array|null $id = null, string|array|null $serviceNames = null, bool $rebuildContainers = false): bool
     {
