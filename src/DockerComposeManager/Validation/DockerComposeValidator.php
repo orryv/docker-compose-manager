@@ -16,5 +16,19 @@ class DockerComposeValidator
         if (!isset($data['services']) || !is_array($data['services']) || empty($data['services'])) {
             throw new YamlException('The Docker Compose file must define at least one service under the "services" key.');
         }
+
+        foreach ($data['services'] as $serviceName => $serviceConfig) {
+            //services:
+//   storyteller:
+//     container_name
+            if (!is_array($serviceConfig)) {
+                throw new YamlException("The service '$serviceName' must have a valid configuration array.");
+            }
+
+            if(!isset($serviceConfig['container_name']) || empty($serviceConfig['container_name'])) {
+                throw new YamlException("The service '$serviceName' must have a 'container_name' defined in the yaml file or array so we can keep track of the container state: (['service']['$serviceName']['container_name'])");
+            }
+
+        }
     }
 }

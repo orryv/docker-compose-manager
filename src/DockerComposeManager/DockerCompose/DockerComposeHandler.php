@@ -5,6 +5,7 @@ namespace Orryv\DockerComposeManager\DockerCompose;
 use Orryv\DockerComposeManager\YamlParsers\YamlParserInterface;
 use Orryv\DockerComposeManager\Exceptions\YamlParserException;
 use Orryv\DockerComposeManager\FileSystem\Writer;
+use Orryv\DockerComposeManager\DockerCompose\DockerComposeHandlerInterface;
 
 /**
  * Class DockerComposeHandler
@@ -13,7 +14,7 @@ use Orryv\DockerComposeManager\FileSystem\Writer;
  *  Meaning it will hold the current state of a Docker Compose file in array format,
  *  and provide methods to manipulate and retrieve information from it.
  */
-class DockerComposeHandler
+class DockerComposeHandler implements DockerComposeHandlerInterface
 {
     private array $dockerCompose;
     private ?string $tmpFilePath = null;

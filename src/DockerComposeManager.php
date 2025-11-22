@@ -14,7 +14,7 @@ use Orryv\DockerComposeManager\DockerCompose\DockerComposeHandlerFactoryInterfac
 use Orryv\DockerComposeManager\DockerCompose\CommandExecutor;
 use Orryv\DockerComposeManager\Validation\DockerComposeValidator;
 use Orryv\DockerComposeManager\CommandBuilder\DockerComposeCommandBuilder;
-
+use Orryv\DockerComposeManager\DockerCompose\OutputParser as DockerComposeOutputParser;
 class DockerComposeManager
 {
     /**
@@ -29,13 +29,15 @@ class DockerComposeManager
     private DockerComposeHandlerFactoryInterface $handlerFactory;
     private array $tmpOutputFiles = [];
     private array $runningPids = [];
+    private ?DockerComposeOutputParser $outputParser = null;
 
 
     public function __construct(
         YamlParserInterface|string $yaml_parser = 'ext-yaml',
-        DockerComposeHandlerCollectionInterface|null $internalConfigManager = null,
+        ?DockerComposeHandlerCollectionInterface $internalConfigManager = null,
         ?CommandExecutor $commandExecutor = null,
-        ?DockerComposeHandlerFactoryInterface $handlerFactory = null
+        ?DockerComposeHandlerFactoryInterface $handlerFactory = null,
+        ?DockerComposeOutputParser $outputParser = null
     ){
         $this->yaml_parser = is_string($yaml_parser)
             ? (new YamlParserFactory())->create($yaml_parser)
@@ -44,6 +46,7 @@ class DockerComposeManager
         $this->internalConfigManager = $internalConfigManager ?? new DockerComposeHandlerCollection();
         $this->commandExecutor = $commandExecutor ?? new CommandExecutor();
         $this->handlerFactory = $handlerFactory ?? new DockerComposeHandlerFactory();
+        $this->outputParser = $outputParser ?? new DockerComposeOutputParser();
     }
 
     public function __destruct()
@@ -103,26 +106,74 @@ class DockerComposeManager
         return $dockerComposeHandler;
     }
 
-    public function start(string|array|null $id = null, string|array|null $serviceNames = null, bool $rebuildContainers = false): void
+    /**
+     * Registers a callback to receive progress updates during container start (non async methods).
+     */
+    public function onProgress(callable $callback): void
     {
-        foreach($this->buildStartCommands($id, $serviceNames, $rebuildContainers) as $commandData) {
-            $executionResult = $this->commandExecutor->executeAsync(
+        // TODO
+    }
+
+    /**
+     * Starts containers defined in the Docker Compose configurations. Returns true if all containers started successfully.
+     */
+    public function start(string|array|null $id = null, string|array|null $serviceNames = null, bool $rebuildContainers = false): bool
+    {
+        $executionResults = [];
+        foreach($this->buildStartCommands($id, $serviceNames, $rebuildContainers) as $config_id => $commandData) {
+            $executionResults[$config_id] = $this->commandExecutor->executeAsync(
                 $commandData['command'],
                 $this->executionPath,
                 $commandData['tmp_identifier']
             );
 
-            if ($executionResult['pid'] !== null) {
-                $this->runningPids[$commandData['id']] = $executionResult['pid'];
+            if ($executionResults[$config_id]['pid'] !== null) {
+                $this->runningPids[$commandData['id']] = $executionResults[$config_id]['pid'];
             }
 
-            $this->tmpOutputFiles[$commandData['id']] = $executionResult['output_file'];
+            $this->tmpOutputFiles[$commandData['id']] = $executionResults[$config_id]['output_file'];
         }
+
+        // now parse outputs
+        do{
+            $scriptExecutionEnded = true;
+            foreach($executionResults as $id => $result) {
+                $outputFile = $result['output_file'];
+                $parseData = $this->outputParser->parse($id, $outputFile, $this->internalConfigManager->get($id));
+
+                print_r($parseData);
+
+                if(!$parseData['script_ended']) {
+                    $scriptExecutionEnded = false;
+                    usleep(250000); // wait 0.25s before re-checking
+                }
+            }
+        } while (!$scriptExecutionEnded);
+
+        // check if successful
+        $allSuccessful = true;
+        foreach($parseData['success']['containers'] as $id => $result) {
+            if(!$result) {
+                $allSuccessful = false;
+                break;
+            }
+        }
+
+        return $allSuccessful;
     }
 
     public function startAsync()
     {
         // TODO
+    }
+
+    /**
+     * Get progress for async methods (startAsync, restartAsync, etc).
+     */
+    public function getProgress(string|array|null $id = null, string|array|null $serviceNames = null): array
+    {
+        // TODO
+        return [];
     }
 
     public function getRunningPids(): array
@@ -155,7 +206,7 @@ class DockerComposeManager
             $dockerComposeHandler = $this->internalConfigManager->get($config_id);
             $dockerComposeHandler->saveTmpDockerComposeFile($this->executionPath);
             $command = (new DockerComposeCommandBuilder($dockerComposeHandler))->start($serviceNames, $rebuildContainers);
-            $commands[] = [
+            $commands[$config_id] = [
                 'id' => $config_id,
                 'command' => $command,
                 'handler' => $dockerComposeHandler,
