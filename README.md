@@ -2,6 +2,10 @@
 
 A PHP library to manage Docker Compose configurations and containers programmatically: create, modify, and control Docker Compose setups using PHP, including starting, stopping, and inspecting containers.
 
+## TODO
+
+- [ ] Wait for healthchecks for isFinishedExecuting() to return true (or add an isHealthy() method)
+
 ## Installation
 
 Requirements:
