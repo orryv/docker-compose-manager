@@ -159,7 +159,7 @@ class DockerComposeManager
     /**
      * Get progress for async methods (startAsync, restartAsync, etc).
      */
-    public function getProgress(string|array|null $id = null, string|array|null $serviceNames = null): array
+    public function getProgress(string|array|null $id = null): array
     {
         $results = [];
         $ids = $this->normalizeInternalIds($id);
