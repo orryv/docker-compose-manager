@@ -32,3 +32,5 @@ do{
     !$progress->areContainersRunning() // If container startup finished (running or failed, not necessarily healthy)
     && !$progress->areHealthy() // if healthy (and thus also running)
 );
+
+echo 'Containers are running.' . PHP_EOL;
